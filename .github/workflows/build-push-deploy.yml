@@ -1,0 +1,95 @@
+# Name of the workflow
+name: Python application build-push-deploy
+
+# This workflow gets triggered on push events to the master branch
+on:
+  push:
+    branches: [ master ]
+
+# Environment variables accessible to all jobs
+env:
+  ENVIRONMENT: staging
+
+# Jobs to be run
+jobs:
+  # Test job
+  test:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    - uses: actions/checkout@v2  # Checks-out your repository under $GITHUB_WORKSPACE
+    - name: Set up Python 3.9.6
+      uses: actions/setup-python@v2  # Sets up a Python environment
+      with:
+        python-version: 3.9.6
+    - name: Install dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        pip3 install -r requirements.txt  # Install Python dependencies
+    - name: Test with pytest
+      run: |
+        pip3 install pytest
+        pytest  # Run tests
+
+  # Build job
+  build:
+    needs: test  # This job needs the test job to complete successfully before it will run
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+    - uses: actions/checkout@v2
+    
+    - name: Install AWS CLI
+      run: |
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        sudo ./aws/install  # Install AWS CLI
+    
+    - name: Configure AWS Credentials
+      with:
+        role-to-assume:  ${{ secrets.AWS_ROLE_NAME }}  # Assume this AWS IAM role
+        role-session-name: ${{ secrets.AWS_ROLE_SESSION_NAME }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}  # Set AWS region
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1  # Sets up Docker Buildx    
+    
+    - name: Build Docker image
+      run: |
+        docker build -t flask-calculator-app/{{ env.ENVIRONMENT }} .  # Build Docker image
+    
+    - name: Tag Docker image
+      run: |
+        COMMIT_ID=$(git rev-parse --short HEAD)
+        docker tag flask-calculator-app/${{ env.ENVIRONMENT }}:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/flask-calculator-app/${{ env.ENVIRONMENT }}:$COMMIT_ID  # Tag Docker image
+    
+    - name: Login to AWS ECR
+      run: |
+        aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com  # Login to AWS ECR
+    
+    - name: Push Docker image to AWS ECR
+      run: |
+        docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/flask-calculator-app/${{ env.ENVIRONMENT }}:$COMMIT_ID  # Push Docker image to AWS ECR
+
+  # Deploy job
+  deploy:
+    needs: build  # This job needs the build job to complete successfully before it will run
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Helm
+      run: |
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+        chmod 700 get_helm.sh
+        ./get_helm.sh  # Install Helm
+
+    - name: Update kubeconfig
+      run: aws eks --region ${{ secrets.AWS_DEFAULT_REGION }} update-kubeconfig --name prod-fca  # Update kubeconfig for EKS cluster
+
+    - name: Deploy to Kubernetes # Deploy Helm chart to Kubernetes
+      run: |
+        helm upgrade --install flask-calculator-app helm-charts/flask-calculator-app -f helm-values/flask-calculator-app/values-flask-calculator-app.yaml --namespace ${{ env.ENVIRONMENT }} --set image.repository=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_DEFAULT_REGION }}.amazonaws.com/flask-calculator-app/${{ env.ENVIRONMENT }} --set image.tag=$COMMIT_ID --set CertificateArn=${{ secrets.CertificateArn }} --set SecurityGroupID=${{ secrets.SecurityGroupID }}
