@@ -1,0 +1,144 @@
+fullnameOverride: flask-calculator-app
+namespace: staging 
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 90
+replicaCount: 1
+
+strategyType:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+
+podAnnotations:
+  cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+
+labels:
+  env: "staging"
+  application: "flask-calculator-app"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+    # eks.amazonaws.com/role-arn: 
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podSecurityContext: 
+   fsGroup: 2001
+
+securityContext: 
+
+image:
+  repository: {{ .Values.image.repository }}
+  pullPolicy: IfNotPresent
+  tag: '{{ .Values.image.tag }}'
+
+env: []  
+  
+envFrom:
+  POD_IP: "status.podIP"
+  POD_SERVICE_ACCOUNT: "spec.serviceAccountName"
+
+container:
+  port: 6005
+
+probes:
+  enabled: true
+  livenessProbe:
+    path: /fca/health
+    port: 6005
+    initialDelaySeconds: 50
+    periodSeconds: 10
+
+  readinessProbe:
+    path: /fca/health
+    port: 6005
+    initialDelaySeconds: 50
+    periodSeconds: 10
+
+resources:
+  limits:
+    cpu: 512m
+    memory: 750Mi
+  requests:
+    cpu: 256m
+    memory: 256Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchExpressions:
+        - key: application
+          operator: In
+          values:
+          - flask-calculator-app
+      topologyKey: "kubernetes.io/hostname"
+
+service:
+  enabled: true
+  type: ClusterIP
+  name: fca
+  port: 80
+  targetPort: 6005
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Ingress section starts from here
+
+bucketName: ""
+environment: ""
+springProfileActive: ""
+
+# Ingress section starts here
+
+# ingress:
+#   enabled: true
+
+ingress:
+  enabled: true
+  annotations:
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.CertificateArn }}
+    alb.ingress.kubernetes.io/group.name: staging-fca
+    alb.ingress.kubernetes.io/healthcheck-path: /fca/health
+    alb.ingress.kubernetes.io/healthcheck-port: "6005"
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "3"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/security-groups: {{ .Values.SecurityGroupID }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '5'
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/tags: component=fca,environment=staging
+  path: /fca
+  pathType: Prefix
+backend:
+  service:
+    name: flask-calculator-app
+    port:
+      number: 80    
+  tls: []
+
+# Ingress section ends here
+
+
+
+
+
