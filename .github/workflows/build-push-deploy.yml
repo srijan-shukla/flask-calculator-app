@@ -19,11 +19,18 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+<<<<<<< HEAD
     - uses: actions/checkout@v2  # Checks-out your repository under $GITHUB_WORKSPACE
     - name: Set up Python 3.9.6
+=======
+    - name: Checkout code
+      uses: actions/checkout@v2  # Checks-out your repository under $GITHUB_WORKSPACE
+    
+    - name: Set up Python 3.9
+>>>>>>> 3c1aca2 (Task3: CI/CD_with_GitHub_Actions Solution: Update Python version to 3.9)
       uses: actions/setup-python@v2  # Sets up a Python environment
       with:
-        python-version: 3.9.6  # Version of Python to use
+        python-version: 3.9  # Version of Python to use
     
     - name: Install dependencies
       run: |
